@@ -718,6 +718,7 @@ def closest_station_response(system: str, include_path=False):
 
 
 def mention_trigger(message):
+    response = False
     try:
         msg_args = shlex.split(message.content)
     except:
