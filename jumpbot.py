@@ -610,10 +610,10 @@ def fleetping_trigger(message):
             if fixup_system_name(word) not in popular_systems:
                 system_sec = get_rounded_sec(fixup_system_name(word))
                 # only respond to nullsec fleetping systems. too many false positives.
-                if get_sec_status(system_sec) == 'nullsec':
-                    response += calc_from_popular(word)
-                    if len(response) > 1:
-                        response += '\n'
+                # if get_sec_status(system_sec) == 'nullsec':
+                response += calc_from_popular(word)
+                if len(response) > 1:
+                    response += '\n'
         else:
             # only check words longer than 3 chars or we start false positive matching english words
             # (e.g. 'any' -> Anyed)
