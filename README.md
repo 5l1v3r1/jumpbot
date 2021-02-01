@@ -1,3 +1,5 @@
+**This fork has been subjected to a big refactoring (still in progress) and this README is no longer accurate anymore. Notably, the "configuration" portion : it no longer uses env variables, and instead a config.py file containing all the configuration.**
+
 
 # jumpbot
 
