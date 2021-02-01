@@ -493,7 +493,7 @@ def get_help():
                 'Autocomplete:                                          `@jumpbot alik ostin`\n'
                 'Partial match suggestions:                     `@jumpbot vv`\n\n'
                 '_jumpbot is case-insensitive_\n'
-                '_message <@142846487582212096> with bugs or suggestions_ :cowboy:')
+                '_message <@!137488285688659969> with bugs or suggestions_ :nerd:')
     return response
 
 
