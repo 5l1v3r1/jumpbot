@@ -606,27 +606,25 @@ def fleetping_trigger(message):
     response = ""
     words = set([punc_strip(word) for line in message.content.split('\n') for word in line.split(' ')])
     for word in words:
-        if is_valid_system(word):
-            if fixup_system_name(word) not in popular_systems:
-                system_sec = get_rounded_sec(fixup_system_name(word))
-                # only respond to nullsec fleetping systems. too many false positives.
-                # if get_sec_status(system_sec) == 'nullsec':
-                response += calc_from_popular(word)
-                if len(response) > 1:
-                    response += '\n'
+        if is_valid_system(word) and fixup_system_name(word) not in popular_systems:
+            # system_sec = get_rounded_sec(fixup_system_name(word))
+            # only respond to nullsec fleetping systems. too many false positives.
+            # if get_sec_status(system_sec) == 'nullsec':
+            response += calc_from_popular(word)
+            if len(response) > 1:
+                response += '\n'
         else:
             # only check words longer than 3 chars or we start false positive matching english words
             # (e.g. 'any' -> Anyed)
             if len(word) > 3 and word.lower() not in fuzzy_match_denylist:
                 fuzzy = try_fuzzy_match(word)
-                if fuzzy and len(fuzzy) == 1:
-                    if fixup_system_name(fuzzy[0]) not in popular_systems:
-                        system_sec = get_rounded_sec(fixup_system_name(fuzzy[0]))
-                        if get_sec_status(system_sec) == 'nullsec':
-                            end = format_system(fuzzy[0])[0]
-                            response += calc_from_popular(word)
-                            if len(response) > 1:
-                                response += '\n'
+                if fuzzy and len(fuzzy) == 1 and fixup_system_name(fuzzy[0]) not in popular_systems:
+                    system_sec = get_rounded_sec(fixup_system_name(fuzzy[0]))
+                    if get_sec_status(system_sec) == 'nullsec':
+                        end = format_system(fuzzy[0])[0]
+                        response += calc_from_popular(end)
+                        if len(response) > 1:
+                            response += '\n'
     if response:
         write_log('fleetping', message)
         return response
