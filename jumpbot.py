@@ -1,41 +1,42 @@
-import sys
-import os
+import ast
 import csv
 import json
-import ast
+import os
 import shlex
-import time
+import sys
 import traceback
+from math import copysign
+from re import sub as re_sub
+
 import dijkstar
 import discord
-import itertools
-from re import sub as re_sub
-from math import copysign
+import config
 
 # where to save a calculated graph
 graph_save_path = './data/graph.cache'
 safe_graph_save_path = './data/safe_graph.cache'
 
 # systems we don't want fuzzy matching to hit on in fleetping triggers
-fuzzy_match_denylist = ['gate', 'serpentis', 'semi', 'time', 'promise', 'vale']
+fuzzy_match_denylist = config.fuzzy_match_denylist
 
 # when fuzzy matching chats to system names, ignore these chars
-punctuation_to_strip = '[.,;:!\'"]'
+punctuation_to_strip = config.punctuation_to_strip
 
 # strings to trigger the output of a detailed path. important that none of these collide with systems!
-path_terms = ['path', 'detail', 'full', 'hops']
+path_terms = config.path_terms
 
 # strings to trigger the output of a detailed path. important that none of these collide with systems!
-safe_terms = ['safe', 'safer', 'lowsec', 'hisec']
+safe_terms = config.safe_terms
 
 # strings to trigger a search for the closest non-null system
-non_null_terms = ['escape', 'evac', 'evacuate']
+non_null_terms = config.non_null_terms
 
 # strings to trigger a search for the closest ITC
-itc_terms = ['itc', 'trade', 'market']
+itc_terms = config.itc_terms
 
 # strings to trigger the display of either closest station or hops with stations
-station_terms = ['station', 'stations']
+station_terms = config.station_terms
+
 
 # ----- preparation -----
 
@@ -43,7 +44,7 @@ def parse_star_csv():
     stars = {}
     with open('data/stars.csv') as starcsv:
         csvreader = csv.reader(starcsv, quotechar='"')
-        next(csvreader)     # skip header row
+        next(csvreader)  # skip header row
         for row in csvreader:
             stars[row[0]] = {'region': row[1],
                              'constellation': row[2],
@@ -57,7 +58,7 @@ def parse_truesec_csv():
     stars_truesec = {}
     with open('data/truesec.csv') as trueseccsv:
         csvreader = csv.reader(trueseccsv)
-        next(csvreader)     # skip header row
+        next(csvreader)  # skip header row
         for row in csvreader:
             stars_truesec[row[0]] = row[1]
     return stars_truesec
@@ -67,7 +68,7 @@ def parse_itc_csv():
     itcs = {}
     with open('data/itcs.csv') as itccsv:
         csvreader = csv.reader(itccsv, quotechar='"')
-        next(csvreader)     # skip header row
+        next(csvreader)  # skip header row
         for row in csvreader:
             itcs[row[0]] = {'planet': row[1],
                             'moon': row[2],
@@ -78,7 +79,7 @@ def parse_itc_csv():
 def parse_station_json():
     with open('data/npc_stations.json') as stationjson:
         station_json = json.load(stationjson)
-    
+
     system_id_lookup = {}
     with open('data/mapSolarSystems.csv') as galaxycsv:
         galaxy_map = csv.DictReader(galaxycsv)
@@ -93,7 +94,7 @@ def parse_station_json():
             station_systems[system_name] += 1
         else:
             station_systems[system_name] = 1
-    
+
     return station_systems
 
 
@@ -136,15 +137,18 @@ def jump_count(path):
     # the number of jumps between two systems
     return len(path['path'].nodes) - 1  # don't include the starting node
 
+
 closest_safes = {}
+
+
 def closest_safe_system(start):
     # breadth first search to identify the closest non-nullsec system
     if start in closest_safes:
-      return closest_safes[start]
-    
+        return closest_safes[start]
+
     visited = []
     queue = [[start]]
- 
+
     while queue:
         path = queue.pop(0)
         node = path[-1]
@@ -158,7 +162,7 @@ def closest_safe_system(start):
                     closest_safes[start] = neighbor
                     return neighbor
             visited.append(node)
- 
+
     return False
 
 
@@ -167,7 +171,7 @@ def closest_itcs(start, count):
     queue = [[start]]
 
     found_itcs = []
- 
+
     while queue and len(found_itcs) < count:
         path = queue.pop(0)
         node = path[-1]
@@ -180,8 +184,9 @@ def closest_itcs(start, count):
                 if neighbor not in found_itcs and neighbor in itcs:
                     found_itcs.append(neighbor)
             visited.append(node)
- 
+
     return found_itcs
+
 
 def closest_stations(start, count):
     visited = []
@@ -202,8 +207,9 @@ def closest_stations(start, count):
                     if neighbor != start:
                         found_stations.append(neighbor)
             visited.append(node)
- 
-    return found_stations[:count]   # there is a bug with 4-way-ties and this is a lazy fix
+
+    return found_stations[:count]  # there is a bug with 4-way-ties and this is a lazy fix
+
 
 # ----- system security math -----
 
@@ -213,7 +219,8 @@ def get_sign(x):
 
 
 def get_rounded_sec(star: str):
-    # EE takes the truesec (float with 5 decimal places), truncates it to two decimal places, then rounds that as expected
+    # EE takes the truesec (float with 5 decimal places),
+    # truncates it to two decimal places, then rounds that as expected
     truncated = str(truesec[star])[0:5]
     rounded = round(float(truncated), 1)
     return rounded
@@ -260,6 +267,7 @@ def generate_flat_lookup(stars):
 
 fuzzy_matches = {}
 
+
 def try_fuzzy_match(system: str):
     length = len(system)
     if length < 2:
@@ -296,7 +304,7 @@ def fixup_system_name(system: str):
         return system_fixups[system]
     if system in stars:
         return system
-    if not system in stars:
+    if system not in stars:
         flat = flatten(system)
         if flat in flat_lookup:
             lookup = flat_lookup[flatten(system)]
@@ -305,7 +313,9 @@ def fixup_system_name(system: str):
         else:
             return False
 
+
 valid_systems = []
+
 
 def is_valid_system(system: str):
     # memoized boolean version of fixup_system_name
@@ -325,9 +335,9 @@ def format_path_security(sec_dict: dict):
     return f"{sec_dict['nullsec']} nullsec"
 
 
-def format_sec_icon(rounded_sec: str):
+def format_sec_icon(rounded_sec: float):
     # pick an emoji to represent the security status
-    status = get_sec_status(float(rounded_sec))
+    status = get_sec_status(rounded_sec)
     if status == 'hisec':
         return '🟩'
     if status == 'lowsec':
@@ -350,7 +360,8 @@ def format_jump_count(start: str, end: str, avoid_null=False):
     start_sec = get_rounded_sec(start)
     end_sec = get_rounded_sec(end)
     path = jump_path(start, end, avoid_null)
-    return f"`{start}` ({start_sec} {format_sec_icon(start_sec)}) to `{end}` ({end_sec} {format_sec_icon(end_sec)}): **{jump_count(path)} {jump_word(jump_count(path))}** ({format_path_security(path['security'])})"
+    return f"`{start}` ({start_sec} {format_sec_icon(start_sec)}) to `{end}` ({end_sec} {format_sec_icon(end_sec)}): " \
+           f"**{jump_count(path)} {jump_word(jump_count(path))}** ({format_path_security(path['security'])})"
 
 
 def format_partial_match(matches: list):
@@ -383,7 +394,8 @@ def format_system(system: str):
         elif not fuzzy:
             warnings.append(format_unknown_system(system))
     if oh_mixup:
-        warnings.append(format_oh_mixup(merge_fuzzy(system, guessed_system) if guessed_system else system, canonical_system))
+        warnings.append(
+            format_oh_mixup(merge_fuzzy(system, guessed_system) if guessed_system else system, canonical_system))
     return canonical_system, warnings
 
 
@@ -395,7 +407,8 @@ def format_path_hops(start: str, end: str, avoid_null=False):
     for hop in hops:
         hop_sec = get_rounded_sec(hop)
         station = "🛰️" if hop in stations else ""
-        response += f"{hop_count}){'  ' if hop_count < 10 else ' '}{hop} ({hop_sec}{format_sec_icon(hop_sec)}) {station}\n"
+        response += f"{hop_count}){'  ' if hop_count < 10 else ' '}{hop} " \
+                    f"({hop_sec}{format_sec_icon(hop_sec)}) {station}\n"
         hop_count += 1
     response += '```'
     return response
@@ -418,7 +431,9 @@ def format_multistop_path(legs: list, stops: list, avoid_null=False):
     for hop in hops:
         hop_sec = get_rounded_sec(hop)
         station = "🛰️" if hop in stations else ""
-        response += f"{hop_count}){'  ' if hop_count < 10 else ' '}{'🛑 ' if hop in stops[1:-1] and hop_count != 0 and hop_count != len(hops) - 1 else '   '}{hop} ({hop_sec}{format_sec_icon(hop_sec)}) {station}\n"
+        response += f"{hop_count}){'  ' if hop_count < 10 else ' '}" \
+                    f"{'🛑 ' if hop in stops[1:-1] and hop_count != 0 and hop_count != len(hops) - 1 else '   '}{hop}" \
+                    f" ({hop_sec}{format_sec_icon(hop_sec)}) {station}\n"
         hop_count += 1
 
     response += "```"
@@ -453,10 +468,11 @@ def check_response_length(response: str):
 # ----- bot logic -----
 
 def write_log(logic, message):
-    if logging_enabled == False:
+    if not logging_enabled:
         return
     # plain old stdout print to be caught by systemd or rsyslog
     source_string = f"{message.guild.name} #{message.channel.name} {message.author.name}#{message.author.discriminator}"
+    mention_id = ""
     for term in message.content.split(' '):
         if any(id in term for id in jumpbot_discord_ids + trigger_roles):
             mention_id = term
@@ -464,7 +480,7 @@ def write_log(logic, message):
     print(f"{source_string} -> {mention_id} [{logic}] : '{message.clean_content}'")
 
 
-def help():
+def get_help():
     response = ('Jump counts from relevant systems:   `@jumpbot [system]`\n'
                 'Jump counts between a specific pair:  `@jumpbot Jita Alikara`\n'
                 'Systems with spaces in their name:     `@jumpbot "New Caldari" Taisy`\n'
@@ -501,7 +517,7 @@ def calc_e2e(start: str, end: str, include_path=False, avoid_null=False, show_ex
     if canonical_start == canonical_end:
         return
 
-    if show_extras == True:
+    if show_extras:
         if len(warnings) > 0:
             response += ''.join(warnings)
         response += format_system_region(canonical_start, canonical_end)
@@ -520,7 +536,8 @@ def calc_e2e(start: str, end: str, include_path=False, avoid_null=False, show_ex
         if not include_path:
             response += '\n'
         if safe_nulls < unsafe_nulls:
-            response += f"_{unsafe_nulls - safe_nulls} fewer nullsec hops at the cost of {safe_hops - unsafe_hops} additional {jump_word(safe_hops - unsafe_hops)}_"
+            response += f"_{unsafe_nulls - safe_nulls} fewer nullsec hops at the cost of {safe_hops - unsafe_hops} " \
+                        f"additional {jump_word(safe_hops - unsafe_hops)}_"
         elif safe_nulls == unsafe_nulls:
             response += "_The shortest path is already the safest!_"
         elif safe_nulls > unsafe_nulls:
@@ -531,10 +548,10 @@ def calc_e2e(start: str, end: str, include_path=False, avoid_null=False, show_ex
 def calc_from_popular(end: str):
     # return jump info for the defined set of interesting/popular systems
     response = ""
-    show_extras = True      # region & warnings
+    show_extras = True  # region & warnings
     for start in popular_systems:
         result = calc_e2e(start, end, show_extras=show_extras)
-        show_extras = False # only on first loop
+        show_extras = False  # only on first loop
         if result:
             response += result
     return response
@@ -561,7 +578,7 @@ def calc_multistop(stops: list, include_path=False, avoid_null=False):
         if leg[0] and leg[1] and leg[0] != leg[1]:
             legs.append(leg)
 
-    response = ''.join(set(warnings))   # merge duplicate warnings
+    response = ''.join(set(warnings))  # merge duplicate warnings
     if legs:
         response += format_system_region(valid_stops[0], valid_stops[-1])
 
@@ -592,12 +609,14 @@ def fleetping_trigger(message):
         if is_valid_system(word):
             if fixup_system_name(word) not in popular_systems:
                 system_sec = get_rounded_sec(fixup_system_name(word))
-                if get_sec_status(system_sec) == 'nullsec':     # only respond to nullsec fleetping systems. too many false positives.
+                # only respond to nullsec fleetping systems. too many false positives.
+                if get_sec_status(system_sec) == 'nullsec':
                     response += calc_from_popular(word)
                     if len(response) > 1:
                         response += '\n'
         else:
-            # only check words longer than 3 chars or we start false positive matching english words (e.g. 'any' -> Anyed)
+            # only check words longer than 3 chars or we start false positive matching english words
+            # (e.g. 'any' -> Anyed)
             if len(word) > 3 and word.lower() not in fuzzy_match_denylist:
                 fuzzy = try_fuzzy_match(word)
                 if fuzzy and len(fuzzy) == 1:
@@ -628,7 +647,9 @@ def closest_safe_response(system: str, include_path=False):
     path = jump_path(candidate, closest, avoid_null=False)
     jumps = jump_count(path)
     closest_sec = get_rounded_sec(closest)
-    response = f"The closest non-nullsec system to `{candidate}` is `{closest}` ({closest_sec} {format_sec_icon(closest_sec)}) (**{jumps} {jump_word(jumps)}**, in **{stars[closest]['region']}**)"
+    response = f"The closest non-nullsec system to `{candidate}` is `{closest}` " \
+               f"({closest_sec} {format_sec_icon(closest_sec)}) " \
+               f"(**{jumps} {jump_word(jumps)}**, in **{stars[closest]['region']}**)"
     if include_path:
         response += format_path_hops(candidate, closest, avoid_null=False)
     if warnings:
@@ -642,18 +663,22 @@ def closest_itc_response(system: str, include_path=False):
     if not candidate:
         return ''.join(warnings)
     closest = closest_itcs(candidate, itc_count)
-    if itc_count > 2:
+    if itc_count > 1:
         response = f"The closest {itc_count} ITCs to `{candidate}` are:"
         for itc in closest:
-                path = jump_path(candidate, itc, avoid_null=False)
-                jumps = jump_count(path)
-                itc_sec = get_rounded_sec(itc)
-                response += f"\n`{itc}` ({itc_sec} {format_sec_icon(itc_sec)}): (**{jumps} {jump_word(jumps)}**, in **{stars[itc]['region']}**)"
-    elif itc_count == 1:
+            path = jump_path(candidate, itc, avoid_null=False)
+            jumps = jump_count(path)
+            itc_sec = get_rounded_sec(itc)
+            response += f"\n`{itc}` ({itc_sec} {format_sec_icon(itc_sec)}): " \
+                        f"(**{jumps} {jump_word(jumps)}**, in **{stars[itc]['region']}**)"
+    else:
+        itc = closest[0]
         path = jump_path(candidate, itc, avoid_null=False)
         jumps = jump_count(path)
         itc_sec = get_rounded_sec(itc)
-        response = f"The closest {itc_count} ITC to {candidate} is `{itc}` ({itc_sec} {format_sec_icon(itc_sec)}): (**{jumps} jumps**, in **{stars[itc]['region']}**)`"
+        response = f"The closest {itc_count} ITC to {candidate} is `{itc}` " \
+                   f"({itc_sec} {format_sec_icon(itc_sec)}): " \
+                   f"(**{jumps} jumps**, in **{stars[itc]['region']}**)`"
     if warnings:
         response = ''.join(warnings) + response
     return response
@@ -668,20 +693,25 @@ def closest_station_response(system: str, include_path=False):
         station_word = 'stations' if stations[candidate] > 1 else 'station'
         warnings += f'🛰️ `{candidate}` has **{stations[candidate]}** {station_word}\n'
     closest = closest_stations(candidate, station_count)
-    if station_count > 2:
+    if station_count > 1:
         other_word = 'other ' if candidate in stations else ''
         response = f"The closest {station_count} {other_word}station systems to `{candidate}` are:"
         for station in closest:
-                path = jump_path(candidate, station, avoid_null=False)
-                jumps = jump_count(path)
-                station_sec = get_rounded_sec(station)
-                station_word = 'stations' if stations[station] > 1 else 'station'
-                response += f"\n`{station}` ({stations[station]} {station_word}) ({station_sec} {format_sec_icon(station_sec)}): (**{jumps} {jump_word(jumps)}**, in **{stars[station]['region']}**)"
-    elif station_count == 1:
+            path = jump_path(candidate, station, avoid_null=False)
+            jumps = jump_count(path)
+            station_sec = get_rounded_sec(station)
+            station_word = 'stations' if stations[station] > 1 else 'station'
+            response += f"\n`{station}` ({stations[station]} {station_word}) " \
+                        f"({station_sec} {format_sec_icon(station_sec)}): " \
+                        f"(**{jumps} {jump_word(jumps)}**, in **{stars[station]['region']}**)"
+    else:
+        station = closest[0]
         path = jump_path(candidate, station, avoid_null=False)
         jumps = jump_count(path)
         station_sec = get_rounded_sec(station)
-        response = f"The closest {station_count} station to {candidate} is `{station}` ({station_sec} {format_sec_icon(station_sec)}): (**{jumps} {jump_word(jumps)}**, in **{stars[station]['region']}**)`"
+        response = f"The closest {station_count} station to {candidate} is `{station}` " \
+                   f"({station_sec} {format_sec_icon(station_sec)}): " \
+                   f"(**{jumps} {jump_word(jumps)}**, in **{stars[station]['region']}**)`"
     if warnings:
         response = ''.join(warnings) + response
     return response
@@ -704,14 +734,14 @@ def mention_trigger(message):
             if any(term in arg.lower() for term in path_terms):
                 path_string = arg
                 msg_args.remove(path_string)
-                include_path = True         # "@jumpboth path w-u"
+                include_path = True  # "@jumpboth path w-u"
                 break
 
         for arg in msg_args:
             if any(term in arg.lower() for term in safe_terms):
                 safe_string = arg
                 msg_args.remove(safe_string)
-                avoid_null = True           # "@jumpboth safe w-u taisy"
+                avoid_null = True  # "@jumpboth safe w-u taisy"
                 break
 
         for arg in msg_args:
@@ -721,7 +751,7 @@ def mention_trigger(message):
                 if len(msg_args) == 1:
                     response = closest_safe_response(msg_args[0], include_path)
                     write_log('evac', message)
-                    return response         # "@jumpbot evac czdj"
+                    return response  # "@jumpbot evac czdj"
                 else:
                     write_log('error-evac', message)
                     return "?:)?"
@@ -733,7 +763,7 @@ def mention_trigger(message):
                 if len(msg_args) == 1:
                     response = closest_itc_response(msg_args[0])
                     write_log('itc', message)
-                    return response         # "@jumpbot itc taisy"
+                    return response  # "@jumpbot itc taisy"
                 else:
                     write_log('error-itc', message)
                     return "?:)?"
@@ -745,24 +775,24 @@ def mention_trigger(message):
                 if len(msg_args) == 1:
                     response = closest_station_response(msg_args[0], include_path)
                     write_log('station', message)
-                    return response         # "@jumpbot station uej"
+                    return response  # "@jumpbot station uej"
                 else:
                     write_log('error-station', message)
                     return "?:)?"
 
     if len(msg_args) == 1:
-        if 'help' in msg_args[0].lower():   # "@jumpbot help"
-            response = help()
+        if 'help' in msg_args[0].lower():  # "@jumpbot help"
+            response = get_help()
             write_log('help', message)
-        else:                               # "@jumpbot Taisy"
+        else:  # "@jumpbot Taisy"
             response = calc_from_popular(msg_args[0])
             if include_path:
                 response += "\n_provide both a start and an end if you want to see the full path :)_"
             write_log('popular', message)
-    elif len(msg_args) == 2:                # "@jumpbot Taisy Alikara"
+    elif len(msg_args) == 2:  # "@jumpbot Taisy Alikara"
         response = calc_e2e(msg_args[0], msg_args[1], include_path, avoid_null)
         write_log('e2e-withpath' if include_path else 'e2e', message)
-    elif len(msg_args) >= 3:                # "@jumpbot D7 jita ostingele
+    elif len(msg_args) >= 3:  # "@jumpbot D7 jita ostingele
         if len(msg_args) > 24:
             response = '24 hops max!'
             write_log('error-long', message)
@@ -805,22 +835,19 @@ def init():
     else:
         safe_graph = generate_safe_graph(stars)
     global popular_systems
-    popular_systems = ast.literal_eval(
-        os.environ.get("JUMPBOT_POPULAR_SYSTEMS"))
-    global jumpbot_discord_ids 
-    jumpbot_discord_ids= ast.literal_eval(
-        os.environ.get("JUMPBOT_DISCORD_IDS"))
+    popular_systems = config.popular_systems
+    global jumpbot_discord_ids
+    jumpbot_discord_ids = config.discord_ids
     global trigger_roles
-    trigger_roles = [role[0] for role in ast.literal_eval(
-        os.environ.get("JUMPBOT_TRIGGER_ROLES"))]
+    trigger_roles = [role[0] for role in config.trigger_roles]
     global logging_enabled
-    logging_enabled = True if os.environ.get("JUMPBOT_DEBUG_LOGGING") == 'True' else False
+    logging_enabled = config.debug_logging
 
 
 def main():
     init()
 
-    discord_token = os.environ.get("JUMPBOT_DISCORD_TOKEN")
+    discord_token = config.discord_token
 
     if not discord_token or not jumpbot_discord_ids or not popular_systems or not trigger_roles:
         print("[!] Missing environment variable!")
