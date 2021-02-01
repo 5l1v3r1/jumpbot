@@ -624,10 +624,6 @@ def fleetping_trigger(message):
                         system_sec = get_rounded_sec(fixup_system_name(fuzzy[0]))
                         if get_sec_status(system_sec) == 'nullsec':
                             end = format_system(fuzzy[0])[0]
-                            for start in popular_systems:
-                                check_path = jump_path(start, end)
-                                if jump_count(check_path) < 5:
-                                    return
                             response += calc_from_popular(word)
                             if len(response) > 1:
                                 response += '\n'

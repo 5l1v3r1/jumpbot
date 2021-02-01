@@ -17,7 +17,7 @@ non_null_terms = ['escape', 'evac', 'evacuate']
 itc_terms = ['itc', 'trade', 'market']
 
 # strings to trigger the display of either closest station or hops with stations
-station_terms = ['station', 'stations']
+station_terms = ['station', 'stations', 'refit']
 
 discord_token = ""
 discord_ids = ['123123123123123123', '234234234234234234', '@jumpbot']
