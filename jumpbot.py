@@ -471,7 +471,10 @@ def write_log(logic, message):
     if not logging_enabled:
         return
     # plain old stdout print to be caught by systemd or rsyslog
-    source_string = f"{message.guild.name} #{message.channel.name} {message.author.name}#{message.author.discriminator}"
+    if isinstance(message.channel, discord.channel.DMChannel):
+        source_string = f"DM {message.author.name}#{message.author.discriminator}"
+    else:
+        source_string = f"{message.guild.name} #{message.channel.name} {message.author.name}#{message.author.discriminator}"
     mention_id = ""
     for term in message.content.split(' '):
         if any(id in term for id in jumpbot_discord_ids + trigger_roles):
