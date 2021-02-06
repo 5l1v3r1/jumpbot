@@ -619,7 +619,7 @@ def fleetping_trigger(message):
         else:
             # only check words longer than 3 chars or we start false positive matching english words
             # (e.g. 'any' -> Anyed)
-            if len(word) > 3 and word.lower() not in fuzzy_match_denylist:
+            if len(word) >= 3 and word.lower() not in fuzzy_match_denylist:
                 fuzzy = try_fuzzy_match(word)
                 if fuzzy and len(fuzzy) == 1 and fixup_system_name(fuzzy[0]) not in popular_systems:
                     system_sec = get_rounded_sec(fixup_system_name(fuzzy[0]))
